@@ -1,6 +1,7 @@
-#!/usr/bin/env python3
+#!/share/CACHEDEV1_DATA/.qpkg/Entware-ng/bin/python3
 #Copyright and coded by Dakusan - See http://www.castledragmire.com/Copyright for more information.
 #Plex Playlist Importer - v1.1.0.0 http://www.castledragmire.com/Projects/Plex_Playlist_Importer
+
 
 import sys
 import os
@@ -10,6 +11,11 @@ import uuid
 import argparse
 import Importers
 from BulletHelpFormatter import BulletHelpFormatter
+
+
+PLEX_HOME = '/share/CACHEDEV1_DATA/.qpkg/PlexMediaServer/'
+PLEX_PATH = '/share/CACHEDEV1_DATA/.qpkg/PlexMediaServer/Library/Plex Media Server/'
+
 
 #Get and confirm the parameter variables
 parser=argparse.ArgumentParser(description='Import playlists into plex', formatter_class=BulletHelpFormatter)
@@ -22,7 +28,7 @@ parser.add_argument('-p', '--sqlitedb-path', nargs=1, metavar='Given_DB_Path', d
       * %%LOCALAPPDATA%%/Plex Media Server/
       * C:/Users/%%USER%%/AppData/Local/Plex Media Server/
     * Linux:
-      * %%PLEX_HOME%%/Library/Application Support/Plex Media Server/
+      * %%PLEX_HOME%%/Library/Plex Media Server/Plug-in Support/Databases/com.plexapp.plugins.library.db
 * If the database is still not found from the given Plex path, the full path to the database is required
   * Defaults: (%%PLEX_PATH%% is from the path found from above)
     * %%PLEX_PATH%%/Plug-in Support/Databases/com.plexapp.plugins.library.db
@@ -90,8 +96,9 @@ if(PlexDBPath is None):
         else:
             PlexDBPath=''
     else: #Linux. THIS IS UNTESTED
-        PlexDBPath=(os.environ['PLEX_HOME']+'/Library/Application Support/Plex Media Server/' if 'PLEX_HOME' in os.environ else '')
-    PlexDBPath=os.path.realpath(PlexDBPath)
+        #PlexDBPath=(os.environ['PLEX_HOME']+'/Library/Plex Media Server/' if 'PLEX_HOME' in os.environ else '')
+        PlexDBPath =  '/share/CACHEDEV1_DATA/.qpkg/PlexMediaServer/Library/Plex Media Server/Plug-in Support/Databases/com.plexapp.plugins.library.db'
+
     try:
         if(PlexDBPath==''):
             raise Exception("Cannot deduce plex path from environmental variables")
@@ -135,13 +142,13 @@ try:
     number_imported=0
     number_already_in_plex=0
     for FilePath in PlaylistFiles:
-        Cur.execute('SELECT MI.metadata_item_id, MP.duration FROM media_parts AS MP INNER JOIN media_items AS MI ON MI.id=MP.media_item_id WHERE MP.file=? COLLATE NOCASE', (FilePath,)) #TODO: Should only have COLLATE NOCASE on case insensitive file systems
+        Cur.execute('SELECT MI.metadata_item_id, MP.duration FROM media_parts AS MP INNER JOIN media_items AS MI ON MI.id=MP.media_item_id WHERE MP.file=? COLLATE NOCASE', (FilePath,))
         Val=Cur.fetchone()
         if(Val is None):
             sys.exit("File not found in DB: "+FilePath)
         DBFileIDs.append(Val[0])
         DBFileDurations.append(Val[1] if Val[1] is not None else 0)
-
+    
     #Confirm/create the plex playlist
     Now=Cur.execute('SELECT DATETIME("NOW")').fetchone()[0]
     PLAYLIST_TYPE=15
@@ -157,7 +164,9 @@ try:
             if ForceListCreation:
                 break
 
-            print("Plex playlist is not already created. Would you like to create it now (y/n)? ", end="")
+            #print("Plex playlist is not already created. Would you like to create it now (y/n)? ", end="")
+            sys.exit("Plex playlist must be created in the App before running this script")
+            #Due the missing changed_at date Playlist must be created in the Player
             sys.stdout.flush()
             Answer=sys.stdin.readline()
             if(Answer=='' or (Answer[0].lower()!='y' and Answer[0].lower()!='n')): #No matches
@@ -167,13 +176,9 @@ try:
             break #Yes, create the plex playlist
 
         #Create the plex playlist
-        DBInsert(Cur, 'metadata_items', {
-            'metadata_type':PLAYLIST_TYPE, 'media_item_count':0, 'title':PlexPlaylistName, 'title_sort':PlexPlaylistName, 'index':0, 'duration':0, 'added_at':Now, 'updated_at':Now,
-            'guid':'com.plexapp.agents.none://'+str(uuid.uuid1()), 'extra_data':'pv%3AdurationInSeconds=1',
-            'absolute_index':10 #TODO: Where does this come from?
-        })
+        DBInsert(Cur, 'metadata_items', {'metadata_type':PLAYLIST_TYPE, 'media_item_count':0, 'title':PlexPlaylistName, 'title_sort':PlexPlaylistName, 'index':0, 'duration':0, 'added_at':Now, 'updated_at':Now,'guid':'com.plexapp.agents.none://'+str(uuid.uuid1()), 'extra_data':'pv%3AdurationInSeconds=1', 'absolute_index':10})
         PlexPlaylistID=Cur.lastrowid
-        
+        #TODO: Where does this come from?
         #BK: Convert AccountName to AccountID
         if(AccountName is not None):
             Cur.execute('SELECT id FROM accounts WHERE name=?', (AccountName,))
@@ -183,9 +188,8 @@ try:
             else: #Name not found
                 AccountID='1'
         
-        DBInsert(Cur, 'metadata_item_accounts', {
-            'account_id':AccountID, 'metadata_item_id':PlexPlaylistID #BK: Made AccountID dynamic
-        })
+        DBInsert(Cur, 'metadata_item_accounts', {'account_id':AccountID, 'metadata_item_id':PlexPlaylistID})
+        #BK: Made AccountID dynamic
         DB.commit()
 
     #Insert the items into the playlist
